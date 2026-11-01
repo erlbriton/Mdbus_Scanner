@@ -29,6 +29,10 @@ class ModbusRepository {
      * @return Возвращает true, если порт успешно открыт и настроен, иначе false.
      */
     fun openPort(usbManager: UsbManager, device: UsbDevice): Boolean {
+        // Обязательно закрываем предыдущее соединение перед открытием нового,
+        // чтобы избежать зависания порта и утечки ресурсов при повторных подключениях
+        close()
+
         // 1. Ищем подходящий драйвер для подключенного USB-устройства с помощью стандартного пробера библиотеки
         val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
         val driver = availableDrivers.find { it.device == device }
@@ -67,6 +71,7 @@ class ModbusRepository {
 
         } catch (e: Exception) {
             Log.e("ModbusRepository", "Ошибка при открытии или настройке порта: ${e.message}")
+            close()
             return false
         }
     }
@@ -94,6 +99,10 @@ class ModbusRepository {
         val fullRequest = request + crc
 
         try {
+            // Очищаем аппаратные буферы приема/передачи перед отправкой нового запроса,
+            // чтобы избавиться от старого мусора и несчитанных байтов
+            port.purgeHwBuffers(true, true)
+
             // Отправляем пакет в порт с таймаутом 1000 мс (1 секунда)
             port.write(fullRequest, 1000)
             Log.d("ModbusRepository", "Запрос отправлен: ${fullRequest.joinToString(" ") { "%02X".format(it) }}")
@@ -143,6 +152,8 @@ class ModbusRepository {
             }
         } catch (e: Exception) {
             Log.e("ModbusRepository", "Ошибка при закрытии порта: ${e.message}")
+        } finally {
+            usbPort = null
         }
     }
 
