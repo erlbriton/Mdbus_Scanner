@@ -103,15 +103,23 @@ class MainViewModel : ViewModel() {
         // viewModelScope — специальная область видимости корутин ViewModel.
         // Когда ViewModel уничтожается, все запущенные в ней корутины автоматически отменяются (защита от утечек).
         pollingJob = viewModelScope.launch {
-            while (isActive) {
+            val maxAttempts = 5
+            for (attempt in 1..maxAttempts) {
+                if (!isActive) break
+
                 // Запрашиваем Device ID из репозитория (низкоуровневый Modbus-запрос)
                 val result = repository.readDeviceId()
                 if (result != null) {
                     deviceId = result
                     break // Если ID успешно получен — выходим из цикла
                 }
-                // Если ответ не пришел, ждем 1 секунду перед следующей попыткой
-                delay(1000)
+
+                if (attempt == maxAttempts) {
+                    deviceId = "Не удалось прочитать ID"
+                } else {
+                    // Если ответ не пришел, ждем 1 секунду перед следующей попыткой
+                    delay(1000)
+                }
             }
         }
     }

@@ -103,15 +103,30 @@ class ModbusRepository {
             // Читаем данные из порта с таймаутом 1000 мс
             val bytesRead = port.read(buffer, 1000)
 
-            // Если прочитано больше 2 байт (есть полезные данные помимо заголовка/ CRC)
-            if (bytesRead > 2) {
-                // Копируем полезную нагрузку (отбрасывая первые 2 байта заголовка)
-                // и преобразуем байты в читаемую ASCII-строку с обрезкой пробелов
-                val receivedData = buffer.copyOfRange(2, bytesRead).toString(Charsets.US_ASCII).trim()
-                if (receivedData.isNotEmpty()) {
-                    return receivedData
+            // Минимальный ответ 0x11: Адрес(1) + Функция(1) + ByteCount(1) + Данные( >= 1 ) + CRC(2) = 6 байт
+            if (bytesRead >= 6) {
+                val slaveId = buffer[0].toInt() and 0xFF
+                val funcCode = buffer[1].toInt() and 0xFF
+                val byteCount = buffer[2].toInt() and 0xFF
+
+                // Проверяем, что это ответ именно от нашего слайва и на нужную функцию
+                if (slaveId == 0x01 && funcCode == 0x11) {
+                    if (bytesRead >= 3 + byteCount + 2) {
+                        val dataLength = if (byteCount > 1) byteCount - 1 else byteCount
+                        val dataBytes = buffer.copyOfRange(3, 3 + dataLength)
+
+                        val receivedData = dataBytes.toString(Charsets.US_ASCII)
+                            .filter { it in '\u0020'..'\u007E' }
+                            .trim()
+
+                        if (receivedData.isNotEmpty()) {
+                            Log.d("ModbusRepository", "Успешно прочитан ID: '$receivedData'")
+                            return receivedData
+                        }
+                    }
                 }
             }
+            Log.w("ModbusRepository", "Ответ от контроллера пустой, поврежден или неполный (bytesRead = $bytesRead)")
         } catch (e: Exception) {
             Log.e("ModbusRepository", "Ошибка обмена данными: ${e.message}")
         }
