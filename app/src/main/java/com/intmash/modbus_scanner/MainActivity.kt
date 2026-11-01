@@ -7,26 +7,29 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
+import com.intmash.modbus_scanner.ui.ConfigScreen
+import com.intmash.modbus_scanner.ui.MainScreen
 import com.intmash.modbus_scanner.ui.MainViewModel
 import com.intmash.modbus_scanner.ui.SplashScreen
 import com.intmash.modbus_scanner.ui.theme.ModbusIDTheme
+import com.intmash.modbus_scanner.utils.FileUtils
 import kotlinx.coroutines.delay
-import androidx.core.content.IntentCompat
-import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -52,15 +55,34 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         usbManager = getSystemService(USB_SERVICE) as UsbManager
+
         checkUsbDevices()
 
         setContent {
             ModbusIDTheme {
-                // Состояние для управления показом заставки (например, покажем её на 2 секунды при старте)
                 var showSplash by remember { mutableStateOf(true) }
+                var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
+                var selectedFileName by remember { mutableStateOf<String?>(null) }
+                var errorMessage by remember { mutableStateOf<String?>(null) }
+
+                val filePickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri: Uri? ->
+                    if (uri != null) {
+                        val name = FileUtils.getFileName(this, uri) ?: "unknown.ini"
+                        if (name.endsWith(".ini", ignoreCase = true)) {
+                            selectedFileUri = uri
+                            selectedFileName = name
+                            errorMessage = null
+                            viewModel.loadIniFile(this, uri)
+                        } else {
+                            errorMessage = "Ошибка: выбранный файл не является .ini файлом"
+                        }
+                    }
+                }
 
                 LaunchedEffect(Unit) {
-                    delay(2000) // Время показа заставки (2 секунды)
+                    delay(3000)
                     showSplash = false
                 }
 
@@ -68,17 +90,30 @@ class MainActivity : ComponentActivity() {
                     if (showSplash) {
                         SplashScreen(modifier = Modifier.padding(innerPadding))
                     } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = viewModel.deviceId,
-                                fontSize = 25.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(16.dp)
+                        if (selectedFileName == null) {
+                            MainScreen(
+                                deviceId = viewModel.deviceId,
+                                isConnected = viewModel.isConnected,
+                                isVirtualDevice = IS_VIRTUAL_DEVICE,
+                                onSelectFileClick = {
+                                    filePickerLauncher.launch(arrayOf("*/*"))
+                                },
+                                errorMessage = errorMessage,
+                                modifier = Modifier.padding(innerPadding)
+                            )
+                        } else {
+                            ConfigScreen(
+                                deviceId = viewModel.deviceId,
+                                selectedFileName = selectedFileName!!,
+                                pages = viewModel.pages,
+                                selectedPage = viewModel.selectedPage,
+                                onRefreshIdClick = {
+                                    viewModel.refreshDeviceId()
+                                },
+                                onPageSelected = { page ->
+                                    viewModel.selectPage(page)
+                                },
+                                modifier = Modifier.padding(innerPadding)
                             )
                         }
                     }
@@ -119,5 +154,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val ACTION_USB_PERMISSION = "com.intmash.modbus_scanner.USB_PERMISSION"
+        private const val IS_VIRTUAL_DEVICE = true
     }
 }
